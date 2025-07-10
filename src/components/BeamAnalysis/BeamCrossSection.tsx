@@ -192,7 +192,7 @@ const BeamCrossSection: React.FC<BeamCrossSectionProps> = ({ width, height, cove
   });
 
   // Torsion longitudinal bars (gold, at corners/sides)
-  let torsionBarCircles: JSX.Element[] = [];
+  let torsionBarCircles: React.ReactElement[] = [];
   if (show_torsion_bars && n_torsion_legs > 0) {
     // Place bars at corners first, then mid-sides if more than 4
     const positions: [number, number][] = [];
