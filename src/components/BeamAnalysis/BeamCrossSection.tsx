@@ -52,7 +52,7 @@ const BeamCrossSection: React.FC<BeamCrossSectionProps> = ({ width, height, cove
   const minLayerSpacing = 18;
   const barR = Math.min((bar_dia * scale) / 2, (SVG_H - 2 * MARGIN) / (layers * 3));
   const barLayerSpacing = Math.max(bar_dia * scale * 2.1, minLayerSpacing + barR * 2);
-  let barCircles: React.ReactElement[] = [];
+  let barCircles: JSX.Element[] = [];
   let barsLeft = n_bars;
   for (let layer = 0; layer < layers && barsLeft > 0; layer++) {
     const thisLayerBars = Math.min(barsInLayer, barsLeft);
@@ -124,7 +124,7 @@ const BeamCrossSection: React.FC<BeamCrossSectionProps> = ({ width, height, cove
   }
 
   // Compression bars (multiple layers)
-  let compBarCircles: React.ReactElement[] = [];
+  let compBarCircles: JSX.Element[] = [];
   if (comp_bar_dia && n_comp_bars && n_comp_bars > 0) {
     const compLayers = n_comp_layers || 1;
     const compBarsInLayer = comp_bars_per_layer || n_comp_bars;
@@ -192,7 +192,7 @@ const BeamCrossSection: React.FC<BeamCrossSectionProps> = ({ width, height, cove
   });
 
   // Torsion longitudinal bars (gold, at corners/sides)
-  let torsionBarCircles: React.ReactElement[] = [];
+  let torsionBarCircles: JSX.Element[] = [];
   if (show_torsion_bars && n_torsion_legs > 0) {
     // Place bars at corners first, then mid-sides if more than 4
     const positions: [number, number][] = [];

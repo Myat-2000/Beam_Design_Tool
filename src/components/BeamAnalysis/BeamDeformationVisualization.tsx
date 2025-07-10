@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } from 'recharts';
 
-export type SupportType = 'pin' | 'roller' | 'fixed' | 'free';
+type SupportType = 'pin' | 'roller' | 'fixed' | 'free';
 
 interface Load {
   id: number;
