@@ -4,7 +4,6 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { BeamCalculator } from './calculations';
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, ReferenceLine } from 'recharts';
 import { Trash2, Info, ChevronDown, ChevronUp, Plus, Box, BarChart2, Ruler, Save, FolderOpen, Sun, Moon, FileText, Loader2, ClipboardCheck } from 'lucide-react';
-import GeminiChatBot from './GeminiChatBot';
 import BeamDeformationVisualization from './BeamDeformationVisualization';
 import { Load, MaterialProperties, Reactions, SectionProperties, DiagramPoint, BeamProject } from './types';
 import ProjectManagement from './ProjectManagement';
@@ -1177,9 +1176,6 @@ const BeamAnalysis: React.FC<BeamAnalysisProps> = ({ onBeamDataChange, ...rest }
           </div>
         </div>
       )}
-
-      {/* Update the GeminiChatBot component with beamData prop */}
-      <GeminiChatBot beamData={beamData} />
 
       {/* Project Management Section (anchor for navigation) */}
       <section id="projects" className="transition-colors">
