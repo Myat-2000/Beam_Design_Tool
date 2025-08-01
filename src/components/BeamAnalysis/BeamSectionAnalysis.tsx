@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContai
 import { Ruler, Calculator, TrendingUp, AlertTriangle, CheckCircle, Info, Settings, Shield, Zap, ChevronDown, ChevronUp, BookOpen, Target, Layers } from 'lucide-react';
 import { useTheme } from '../ThemeProvider';
 import BeamCrossSection from './BeamCrossSection';
-import { useBeamSectionAnalysis } from './calculations/useBeamSectionAnalysis';
+import { useBeamSectionAnalysis } from './calculations/useBeamSectionAnalysisOptimized';
 import SectionPropertiesPanel from './SectionPropertiesPanel';
 import ReinforcementDetailsPanel from './ReinforcementDetailsPanel';
 import ReductionFactorsPanel from './ReductionFactorsPanel';
@@ -168,8 +168,8 @@ const BeamSectionAnalysis: React.FC<BeamSectionAnalysisProps> = ({
     generateCompressionTensionData
   } = useBeamSectionAnalysis({ width, height, materialProps, loads });
 
-  const stressData = generateStressDistributionData();
-  const compressionTensionData = generateCompressionTensionData();
+  const stressData = generateStressDistributionData;
+  const compressionTensionData = generateCompressionTensionData;
 
   return (
     <div className="bg-white dark:bg-gray-800 w-full min-h-screen flex flex-col transition-colors">
