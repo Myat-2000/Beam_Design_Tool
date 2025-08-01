@@ -91,18 +91,22 @@ export class BeamCalculator {
   }
 
   public calculateSectionProperties(): SectionProperties {
-    const area = this.beamHeight * this.beamWidth;
-    const momentOfInertia = (this.beamWidth * Math.pow(this.beamHeight, 3)) / 12;
-    const sectionModulus = momentOfInertia / (this.beamHeight / 2);
+    // Convert mm to m for calculations
+    const height_m = this.beamHeight / 1000;
+    const width_m = this.beamWidth / 1000;
+    
+    const area = height_m * width_m; // m²
+    const momentOfInertia = (width_m * Math.pow(height_m, 3)) / 12; // m⁴
+    const sectionModulus = momentOfInertia / (height_m / 2); // m³
 
     // Torsional constant (Roark's formula for rectangular sections)
-    const a = Math.max(this.beamWidth, this.beamHeight);
-    const b = Math.min(this.beamWidth, this.beamHeight);
+    const a = Math.max(width_m, height_m);
+    const b = Math.min(width_m, height_m);
     const torsionalConstant = a * b ** 3 * (
-      (1 / 3) - 0.21 * (b / a) * (1 - (b ** 4) / (12 * a ** 4)
-    ));
+      (1 / 3) - 0.21 * (b / a) * (1 - (b ** 4) / (12 * a ** 4))
+    ); // m⁴
 
-    const polarMomentOfInertia = momentOfInertia * 2; // Example calculation, adjust as needed
+    const polarMomentOfInertia = momentOfInertia * 2; // m⁴
 
     return {
       area: Math.max(BeamCalculator.NEGLIGIBLE, area),
@@ -301,12 +305,32 @@ export class BeamCalculator {
     const R = this.calculateReactions();
     let shear = 0;
 
+    // Start with left reaction
     if (x >= this.startSupportPosition) shear += R.reactionA;
-    if (x >= this.endSupportPosition) shear += R.reactionB;
 
+    // Subtract distributed loads up to x
     this.loads.forEach(load => {
-      if (x >= load.position) shear -= this.getLoadEffect(load, x);
+      if (load.type === 'distributed' && load.length) {
+        const loadStart = load.position;
+        const loadEnd = load.position + load.length;
+        if (x > loadStart) {
+          const effLength = Math.min(x, loadEnd) - loadStart;
+          if (effLength > 0) {
+            shear -= load.magnitude * effLength;
+          }
+        }
+      }
     });
+
+    // Subtract point loads at or before x
+    this.loads.forEach(load => {
+      if (load.type === 'point' && x >= load.position) {
+        shear -= load.magnitude;
+      }
+    });
+
+    // Add right reaction if at or past right support
+    if (x >= this.endSupportPosition) shear += R.reactionB;
 
     return Number(shear.toFixed(3));
   }
@@ -317,107 +341,39 @@ export class BeamCalculator {
     const R = this.calculateReactions();
     let moment = 0;
 
-    // Check if it's a cantilever beam
-    const isCantilever = (this.startSupport === 'fixed' && this.endSupport === 'free') || 
-                        (this.startSupport === 'free' && this.endSupport === 'fixed');
-    const fixedEnd = this.startSupport === 'fixed' ? 'start' : 'end';
-    const fixedPos = fixedEnd === 'start' ? this.startSupportPosition : this.endSupportPosition;
-    const freeEnd = fixedEnd === 'start' ? 'end' : 'start';
-    const freePos = freeEnd === 'start' ? this.startSupportPosition : this.endSupportPosition;
-
-    if (isCantilever) {
-      // For cantilever beams, moment at x is sum of all load effects between x and the free end
-      // (i.e., to the right of x if fixed at left, to the left if fixed at right)
-      if (fixedEnd === 'start') {
-        // Cantilever fixed at start (left), free at end (right)
-        // Moment at x = sum of all loads between x and beamLength, taken about x
-        this.loads.forEach(load => {
-          if (load.type === 'point') {
-            if (load.position > x) {
-              // Downward load: negative moment
-              moment -= load.magnitude * (load.position - x);
-            }
-          } else if (load.type === 'distributed' && load.length) {
-            const loadStart = load.position;
-            const loadEnd = load.position + load.length;
-            // Only consider distributed load portions to the right of x
-            if (loadEnd > x) {
-              // The part of the distributed load to the right of x
-              const a = Math.max(x, loadStart);
-              const b = Math.min(this.beamLength, loadEnd);
-              const l = b - a;
-              if (l > 0) {
-                // The resultant force is w*l, acts at center of segment
-                const centroid = a + l/2;
-                moment -= load.magnitude * l * (centroid - x);
-              }
-            }
-          } else if (load.type === 'moment') {
-            if (load.position > x) {
-              // Clockwise moment: negative (by convention)
-              moment -= load.magnitude * (load.momentDirection === 'clockwise' ? 1 : -1);
-            }
-          }
-        });
-      } else {
-        // Cantilever fixed at end (right), free at start (left)
-        // Moment at x = sum of all loads between 0 and x, taken about x
-        this.loads.forEach(load => {
-          if (load.type === 'point') {
-            if (load.position < x) {
-              moment += load.magnitude * (x - load.position);
-            }
-          } else if (load.type === 'distributed' && load.length) {
-            const loadStart = load.position;
-            const loadEnd = load.position + load.length;
-            if (loadStart < x) {
-              const a = Math.max(loadStart, 0);
-              const b = Math.min(x, loadEnd);
-              const l = b - a;
-              if (l > 0) {
-                const centroid = a + l/2;
-                moment += load.magnitude * l * (x - centroid);
-              }
-            }
-          } else if (load.type === 'moment') {
-            if (load.position < x) {
-              moment += load.magnitude * (load.momentDirection === 'clockwise' ? 1 : -1);
-            }
-          }
-        });
-      }
-      // Moment at free end is always zero
-      if (Math.abs(x - freePos) < 1e-8) return 0;
-      return Number(moment.toFixed(3));
-    }
-
-    // For regular beams, calculate as before
+    // Start with left reaction contribution
     if (x >= this.startSupportPosition) {
-      moment += -R.momentA - R.reactionA * (x - this.startSupportPosition);
+      moment += R.reactionA * (x - this.startSupportPosition);
     }
-    if (x >= this.endSupportPosition) {
-      moment += -R.momentB - R.reactionB * (x - this.endSupportPosition);
-    }
+
+    // Subtract distributed loads up to x
     this.loads.forEach(load => {
-      if (x <= load.position) return;
-      switch (load.type) {
-        case 'point':
-          moment += load.magnitude * (x - load.position);
-          break;
-        case 'distributed':
-          if (!load.length) break;
-          const end = load.position + load.length;
-          if (x <= end) {
-            moment += load.magnitude * Math.pow(x - load.position, 2) / 2;
-          } else {
-            moment += load.magnitude * load.length * (x - load.position - load.length / 2);
+      if (load.type === 'distributed' && load.length) {
+        const loadStart = load.position;
+        const loadEnd = load.position + load.length;
+        if (x > loadStart) {
+          const effLength = Math.min(x, loadEnd) - loadStart;
+          if (effLength > 0) {
+            // The moment due to a UDL from loadStart to min(x, loadEnd) at x
+            // is w * l * (x - loadStart - l/2)
+            moment -= load.magnitude * effLength * (x - loadStart - effLength / 2);
           }
-          break;
-        case 'moment':
-          moment += load.magnitude * (load.momentDirection === 'clockwise' ? 1 : -1);
-          break;
+        }
       }
     });
+
+    // Subtract point loads at or before x
+    this.loads.forEach(load => {
+      if (load.type === 'point' && x >= load.position) {
+        moment -= load.magnitude * (x - load.position);
+      }
+    });
+
+    // Add right reaction if at or past right support
+    if (x >= this.endSupportPosition) {
+      moment += R.reactionB * (x - this.endSupportPosition);
+    }
+
     return Number(moment.toFixed(3));
   }
 
@@ -701,9 +657,13 @@ export class BeamCalculator {
     const shear = this.calculateShear(x);
     const torsion = this.calculateTorsion(x);
 
+    // Convert beam dimensions to m for consistent units
+    const height_m = this.beamHeight / 1000;
+    const width_m = this.beamWidth / 1000;
+
     const normalStress = (moment / sectionModulus) * BeamCalculator.STRESS_TO_MPA;
-    const shearStress = (3 * shear) / (2 * this.beamWidth * this.beamHeight) * BeamCalculator.STRESS_TO_MPA;
-    const torsionalStress = (torsion * this.beamHeight) / (2 * torsionalConstant) * BeamCalculator.STRESS_TO_MPA;
+    const shearStress = (3 * shear) / (2 * width_m * height_m) * BeamCalculator.STRESS_TO_MPA;
+    const torsionalStress = (torsion * height_m) / (2 * torsionalConstant) * BeamCalculator.STRESS_TO_MPA;
 
     const vonMises = Math.sqrt(
       normalStress ** 2 + 3 * (shearStress ** 2 + torsionalStress ** 2)

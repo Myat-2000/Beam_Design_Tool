@@ -47,6 +47,7 @@ const availableStirrupSizes = defaultInput.stirrup_sizes;
 const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width, height, M_u, V_u }) => {
   const [input, setInput] = useState<BeamReinforcementInput>({
     ...defaultInput,
+    stirrup_spacing: defaultInput.stirrup_spacing ?? 100,
     b: width ?? defaultInput.b,
     h: height ?? defaultInput.h,
     M_u: M_u ?? defaultInput.M_u,
@@ -138,7 +139,11 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
         }
         if (!fit) throw new Error('Cannot fit bars in width even with multiple layers - increase b or use smaller bars');
       }
-      const A_s_prov = n_bars * bar_area;
+      let A_s_prov = n_bars * bar_area;
+      if (useSideBars && sideBarDia && input.bar_areas[sideBarDia]) {
+        const side_bar_area = input.bar_areas[sideBarDia];
+        A_s_prov += 2 * side_bar_area; // Add two side bars
+      }
       const tension = {
         bar_dia: input.tension_bar_dia,
         n_bars,
@@ -153,6 +158,39 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
       const d_actual = calcActualEffectiveDepth(input.h, input.cover, stirrupDia, tension.bar_dia);
       // Step 6: Shear design (use only selected stirrup size)
       const shear = shearDesign(input.f_c, input.f_y, input.b, d_actual, input.V_u, stirrupDia, input.phi_shear);
+
+      // Use user-provided stirrup spacing if available and valid, otherwise use calculated
+      let stirrup_spacing = shear.s;
+      let spacing_note = '';
+      if (typeof input.stirrup_spacing === 'number' && input.stirrup_spacing > 0) {
+        // Validate user input against code min/max
+        const minSpacing = 20;
+        const maxSpacing = 600;
+        if (input.stirrup_spacing < minSpacing) {
+          stirrup_spacing = minSpacing;
+          spacing_note = `Minimum allowed spacing is ${minSpacing} mm.`;
+        } else if (input.stirrup_spacing > maxSpacing) {
+          stirrup_spacing = maxSpacing;
+          spacing_note = `Maximum allowed spacing is ${maxSpacing} mm.`;
+        } else {
+          stirrup_spacing = input.stirrup_spacing;
+          if (Math.abs(stirrup_spacing - (shear.s ?? 0)) > 1) {
+            spacing_note = `User spacing: ${stirrup_spacing} mm, recommended: ${(shear.s ?? 0).toFixed(1)} mm.`;
+          }
+        }
+      }
+
+      // Calculate V_n (shear capacity provided by stirrups + concrete) using the selected spacing
+      let V_n = 0;
+      if (
+        shear &&
+        typeof stirrup_spacing === 'number' && stirrup_spacing > 0 &&
+        typeof shear.A_v === 'number' && shear.A_v > 0
+      ) {
+        const V_s = shear.A_v * input.f_y * d_actual / stirrup_spacing;
+        const V_c = 0.17 * Math.sqrt(input.f_c) * input.b * d_actual;
+        V_n = (V_c + V_s) * input.phi_shear;
+      }
       // Step 7: Compression reinforcement if needed
       let comp = { bar_dia: 0, n_bars: 0, A_s_prov: 0, width_required: 0, n_comp_layers: 1, comp_bars_per_layer: 0 };
       let d_prime_actual = 0;
@@ -221,6 +259,9 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
         ...tension,
         d_actual,
         ...shear,
+        stirrup_spacing, // add the used spacing
+        spacing_note, // add note for user
+        V_n,
         comp,
         d_prime_actual,
         phiM_n,
@@ -272,144 +313,244 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
               </ul>
             </div>
           </div>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <div>
-              <label className="block text-gray-700 dark:text-gray-200 font-semibold mb-1">Width b (mm)</label>
-              <input
-                type="number"
-                name="b"
-                value={input.b !== undefined && input.b !== null ? input.b.toString() : ''}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300 dark:bg-gray-700 dark:text-white"
-                min={1}
-                step={1}
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 dark:text-gray-200 font-semibold mb-1">Height h (mm)</label>
-              <input
-                type="number"
-                name="h"
-                value={input.h !== undefined && input.h !== null ? input.h.toString() : ''}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300 dark:bg-gray-700 dark:text-white"
-                min={1}
-                step={1}
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 dark:text-gray-200 font-semibold mb-1">Concrete Strength f<sub>c</sub> (MPa)</label>
-              <input
-                type="number"
-                name="f_c"
-                value={input.f_c !== undefined && input.f_c !== null ? input.f_c.toString() : ''}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300 dark:bg-gray-700 dark:text-white"
-                min={1}
-                step={1}
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 dark:text-gray-200 font-semibold mb-1">Steel Yield Strength f<sub>y</sub> (MPa)</label>
-              <input
-                type="number"
-                name="f_y"
-                value={input.f_y !== undefined && input.f_y !== null ? input.f_y.toString() : ''}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300 dark:bg-gray-700 dark:text-white"
-                min={1}
-                step={1}
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 dark:text-gray-200 font-semibold mb-1">Factored Moment M<sub>u</sub> (N·mm)</label>
-              <input
-                type="number"
-                name="M_u"
-                value={input.M_u !== undefined && input.M_u !== null ? input.M_u.toString() : ''}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300 dark:bg-gray-700 dark:text-white"
-                min={0}
-                step={1}
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 dark:text-gray-200 font-semibold mb-1">Factored Shear V<sub>u</sub> (N)</label>
-              <input
-                type="number"
-                name="V_u"
-                value={input.V_u !== undefined && input.V_u !== null ? input.V_u.toString() : ''}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300 dark:bg-gray-700 dark:text-white"
-                min={0}
-                step={1}
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 dark:text-gray-200 font-semibold mb-1">Factored Torsion T<sub>u</sub> (N·mm)</label>
-              <input
-                type="number"
-                name="T_u"
-                value={input.T_u !== undefined && input.T_u !== null ? input.T_u.toString() : ''}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring focus:border-blue-300 dark:bg-gray-700 dark:text-white"
-                min={0}
-                step={1}
-              />
-            </div>
-            {/* Move Reinforcement Details section here, directly after Tu input */}
-            <div className="md:col-span-2 lg:col-span-2 xl:col-span-2">
-              {/* Reinforcement Details Section (already improved) */}
-              <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg border border-gray-200 dark:border-gray-600 mt-4 mb-2">
-                <h3 className="text-base font-bold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2 border-b border-gray-300 dark:border-gray-600 pb-2">
-                  <BarChart2 className="w-5 h-5" />
-                  Reinforcement Details
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1" htmlFor="cover">
-                      Cover (mm)
-                      <span className="text-xs text-gray-400 ml-1" title="Concrete cover to main bars">?</span>
-                    </label>
-                    <input id="cover" type="number" name="cover" value={input.cover} onChange={handleChange} className="w-full px-3 py-2 text-base rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-600 dark:text-gray-100 focus:ring-2 focus:ring-blue-500" min={0} />
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Distance from surface to main bars</span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1" htmlFor="stirrup_dia">
-                      Stirrup (mm)
-                      <span className="text-xs text-gray-400 ml-1" title="Diameter of stirrup bars">?</span>
-                    </label>
-                    <select id="stirrup_dia" name="stirrup_dia" value={String(stirrupDia)} onChange={handleStirrupSizeChange} className="w-full px-3 py-2 text-base rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-600 dark:text-gray-100 focus:ring-2 focus:ring-blue-500">
-                      {availableStirrupSizes.map(size => (
-                        <option key={size} value={size}>{size}</option>
-                      ))}
-                    </select>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Transverse reinforcement</span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1" htmlFor="tension_bar_dia">
-                      Tension Bar (mm)
-                      <span className="text-xs text-gray-400 ml-1" title="Diameter of main tension bars">?</span>
-                    </label>
-                    <select id="tension_bar_dia" name="tension_bar_dia" value={String(input.tension_bar_dia)} onChange={handleBarSizeChange} className="w-full px-3 py-2 text-base rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-600 dark:text-gray-100 focus:ring-2 focus:ring-blue-500">
-                      {availableBarSizes.map(size => (
-                        <option key={size} value={size}>{size}</option>
-                      ))}
-                    </select>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Main bottom bars</span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className={`text-sm font-medium flex items-center gap-1 ${results && results.is_doubly ? 'text-gray-700 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}`} htmlFor="comp_bar_dia">
-                      Comp. Bar (mm)
-                      <span className="text-xs text-gray-400 ml-1" title="Diameter of compression bars">?</span>
-                    </label>
-                    <select id="comp_bar_dia" name="comp_bar_dia" value={String(compBarDia)} onChange={handleCompBarSizeChange} className={`w-full px-3 py-2 text-base rounded border ${results && results.is_doubly ? 'border-gray-300 dark:border-gray-600' : 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500'} dark:bg-gray-600 dark:text-gray-100 focus:ring-2 focus:ring-blue-500`} disabled={!results || !results.is_doubly}>
-                      {availableBarSizes.map(size => (
-                        <option key={size} value={size}>{size}</option>
-                      ))}
-                    </select>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Top bars (only if doubly reinforced)</span>
-                  </div>
+          <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700">
+            <p className="text-sm text-green-800 dark:text-green-200">
+              <strong>Note:</strong> Input values are now displayed in engineering units (kN·m for moments, kN for shear) for easier input. 
+              The values are automatically converted to the required units for ACI calculations.
+            </p>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-6 mb-8">
+            {/* Dimensions Section */}
+            <section className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 border border-gray-200 dark:border-gray-700 transition-colors mb-2">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                <Ruler className="w-5 h-5 text-blue-500" /> Dimensions
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="relative group">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Width (mm)</label>
+                  <input
+                    type="number"
+                    name="b"
+                    value={input.b}
+                    onChange={handleChange}
+                    min={10}
+                    step={1}
+                    className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                    placeholder="Width (mm)"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Beam width</span>
+                </div>
+                <div className="relative group">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Height (mm)</label>
+                  <input
+                    type="number"
+                    name="h"
+                    value={input.h}
+                    onChange={handleChange}
+                    min={10}
+                    step={1}
+                    className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                    placeholder="Height (mm)"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Beam height</span>
+                </div>
+              </div>
+            </section>
+            {/* Material Properties Section */}
+            <section className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 border border-gray-200 dark:border-gray-700 transition-colors mb-2">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                <Zap className="w-5 h-5 text-green-500" /> Material Properties
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="relative group">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Concrete Strength f<sub>c</sub> (MPa)</label>
+                  <input
+                    type="number"
+                    name="f_c"
+                    value={input.f_c}
+                    onChange={handleChange}
+                    min={1}
+                    step={1}
+                    className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                    placeholder="Concrete strength (MPa)"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Cylinder compressive strength</span>
+                </div>
+                <div className="relative group">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Steel Yield Strength f<sub>y</sub> (MPa)</label>
+                  <input
+                    type="number"
+                    name="f_y"
+                    value={input.f_y}
+                    onChange={handleChange}
+                    min={1}
+                    step={1}
+                    className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                    placeholder="Steel yield strength (MPa)"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Rebar yield strength</span>
+                </div>
+                <div className="relative group">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Cover (mm)</label>
+                  <input
+                    type="number"
+                    name="cover"
+                    value={input.cover}
+                    onChange={handleChange}
+                    min={0}
+                    step={1}
+                    className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                    placeholder="Concrete cover (mm)"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Distance from surface to main bars</span>
+                </div>
+              </div>
+            </section>
+            {/* Loads Section */}
+            <section className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 border border-gray-200 dark:border-gray-700 transition-colors mb-2">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                <Zap className="w-5 h-5 text-green-500" /> Loads
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="relative group">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Factored Moment M<sub>u</sub> (kN·m)</label>
+                  <input
+                    type="number"
+                    name="M_u"
+                    value={input.M_u !== undefined && input.M_u !== null ? (input.M_u / 1e6).toFixed(2) : ''}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value) || 0;
+                      setInput(prev => ({ ...prev, M_u: value * 1e6 }));
+                    }}
+                    min={0}
+                    step={0.01}
+                    className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                    placeholder="Factored moment (kN·m)"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Maximum bending moment</span>
+                </div>
+                <div className="relative group">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Factored Shear V<sub>u</sub> (kN)</label>
+                  <input
+                    type="number"
+                    name="V_u"
+                    value={input.V_u !== undefined && input.V_u !== null ? (input.V_u / 1e3).toFixed(2) : ''}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value) || 0;
+                      setInput(prev => ({ ...prev, V_u: value * 1e3 }));
+                    }}
+                    min={0}
+                    step={0.01}
+                    className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                    placeholder="Factored shear (kN)"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Maximum shear force</span>
+                </div>
+                <div className="relative group">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Factored Torsion T<sub>u</sub> (kN·m)</label>
+                  <input
+                    type="number"
+                    name="T_u"
+                    value={input.T_u !== undefined && input.T_u !== null ? (input.T_u / 1e6).toFixed(2) : ''}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value) || 0;
+                      setInput(prev => ({ ...prev, T_u: value * 1e6 }));
+                    }}
+                    min={0}
+                    step={0.01}
+                    className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                    placeholder="Factored torsion (kN·m)"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Maximum torsional moment</span>
+                </div>
+              </div>
+            </section>
+            {/* Reinforcement Details Section (already improved) */}
+            <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg border border-gray-200 dark:border-gray-600 mt-4 mb-2">
+              <h3 className="text-base font-bold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2 border-b border-gray-300 dark:border-gray-600 pb-2">
+                <BarChart2 className="w-5 h-5" />
+                Reinforcement Details
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1" htmlFor="stirrup_dia">
+                    Stirrup (mm)
+                    <span className="text-xs text-gray-400 ml-1" title="Diameter of stirrup bars">?</span>
+                  </label>
+                  <select
+                    id="stirrup_dia"
+                    name="stirrup_dia"
+                    value={String(stirrupDia)}
+                    onChange={handleStirrupSizeChange}
+                    className="w-full px-4 py-3 text-lg rounded-lg border-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-gray-50 dark:bg-gray-700 dark:text-gray-100 border-gray-400 dark:border-gray-600"
+                  >
+                    {availableStirrupSizes.map(size => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Transverse reinforcement</span>
+                </div>
+                {/* Stirrup Spacing Input - Improved UI, no Reset button, more prominent */}
+                <div className="flex flex-col gap-1 relative">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1" htmlFor="stirrup_spacing">
+                    <Ruler className="inline w-4 h-4 text-blue-500" />
+                    Stirrup Spacing (mm)
+                    <span className="text-xs text-gray-400 ml-1 cursor-pointer" title="Spacing between stirrups (center to center). Code: 20–600 mm. Leave blank for recommended.">?</span>
+                  </label>
+                  <input
+                    id="stirrup_spacing"
+                    type="number"
+                    name="stirrup_spacing"
+                    value={input.stirrup_spacing ?? ''}
+                    onChange={handleChange}
+                    placeholder="e.g. 150"
+                    className={`w-full px-4 py-3 text-lg rounded-lg border-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-gray-50 dark:bg-gray-700 dark:text-gray-100 border-gray-400 dark:border-gray-600 ${typeof input.stirrup_spacing === 'number' && (input.stirrup_spacing < 20 || input.stirrup_spacing > 600) ? 'border-red-500 bg-red-50 dark:bg-red-900' : ''}`}
+                    min={20}
+                    max={600}
+                    step={1}
+                  />
+                  {/* Warning message for invalid input */}
+                  {typeof input.stirrup_spacing === 'number' && (input.stirrup_spacing < 20 || input.stirrup_spacing > 600) && (
+                    <span className="text-xs text-red-600 mt-1">Spacing must be between 20 and 600 mm.</span>
+                  )}
+                  <span className="text-xs text-gray-500 mt-1">Spacing between stirrups (center to center). Code: 20–600 mm. Leave blank for recommended.</span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1" htmlFor="tension_bar_dia">
+                    Tension Bar (mm)
+                    <span className="text-xs text-gray-400 ml-1" title="Diameter of main tension bars">?</span>
+                  </label>
+                  <select
+                    id="tension_bar_dia"
+                    name="tension_bar_dia"
+                    value={String(input.tension_bar_dia)}
+                    onChange={handleBarSizeChange}
+                    className="w-full px-4 py-3 text-lg rounded-lg border-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-gray-50 dark:bg-gray-700 dark:text-gray-100 border-gray-400 dark:border-gray-600"
+                  >
+                    {availableBarSizes.map(size => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Main bottom bars</span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={`text-sm font-medium flex items-center gap-1 ${results && results.is_doubly ? 'text-gray-700 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}`} htmlFor="comp_bar_dia">
+                    Comp. Bar (mm)
+                    <span className="text-xs text-gray-400 ml-1" title="Diameter of compression bars">?</span>
+                  </label>
+                  <select
+                    id="comp_bar_dia"
+                    name="comp_bar_dia"
+                    value={String(compBarDia)}
+                    onChange={handleCompBarSizeChange}
+                    className={`w-full px-4 py-3 text-lg rounded-lg border-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-gray-50 dark:bg-gray-700 dark:text-gray-100 border-gray-400 dark:border-gray-600 ${results && results.is_doubly ? 'border-gray-300 dark:border-gray-600' : 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500'}`}
+                    disabled={!results || !results.is_doubly}
+                  >
+                    {availableBarSizes.map(size => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Top bars (only if doubly reinforced)</span>
                 </div>
               </div>
             </div>
@@ -435,22 +576,34 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
               </div>
             </div>
             <div className="md:col-span-2 mt-2">
-              <div className="p-4 rounded-lg border border-yellow-400 bg-yellow-50 dark:bg-yellow-900/30 flex flex-col gap-2">
-                <div className="flex items-center gap-4">
-                  <input
-                    type="checkbox"
-                    id="useSideBars"
-                    checked={useSideBars}
-                    onChange={e => setUseSideBars(e.target.checked)}
-                    className="mr-2 accent-yellow-500 scale-125"
-                  />
-                  <label htmlFor="useSideBars" className="font-semibold text-yellow-800 dark:text-yellow-200 text-lg">Include Side Bars (Longitudinal Bars at Sides)</label>
-                  <span className="ml-2 text-yellow-600 dark:text-yellow-300 text-xs cursor-help" title="Side bars are recommended for wide beams, improved crack control, and code compliance. They are placed near the sides inside the stirrups.">Why?</span>
+              <div className="p-4 rounded-lg border border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/30 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    {/* Modern toggle switch */}
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="useSideBars"
+                        checked={useSideBars}
+                        onChange={e => setUseSideBars(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 dark:bg-gray-700 rounded-full peer peer-checked:bg-blue-600 transition-all duration-200"></div>
+                      <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow peer-checked:translate-x-5 transition-transform duration-200"></div>
+                    </label>
+                    <label htmlFor="useSideBars" className="font-semibold text-blue-800 dark:text-blue-200 text-lg cursor-pointer select-none">
+                      Include Side Bars <span className="font-normal text-base">(Longitudinal Bars at Sides)</span>
+                    </label>
+                  </div>
+                  <span className="ml-2 text-blue-600 dark:text-blue-300 text-xs cursor-help flex items-center" title="Side bars are recommended for wide beams, improved crack control, and code compliance. They are placed near the sides inside the stirrups.">
+                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8"/></svg>
+                    Why?
+                  </span>
                 </div>
                 <div className="ml-7 mt-1 flex items-center gap-3">
                   {useSideBars && (
                     <>
-                      <label htmlFor="sideBarDia" className="font-medium text-yellow-800 dark:text-yellow-200">Side bar diameter (mm):</label>
+                      <label htmlFor="sideBarDia" className="font-medium text-blue-800 dark:text-blue-200">Side bar diameter (mm):</label>
                       <input
                         type="number"
                         id="sideBarDia"
@@ -459,12 +612,12 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
                         step={1}
                         value={sideBarDia}
                         onChange={e => setSideBarDia(Number(e.target.value))}
-                        className="w-20 px-2 py-1 border border-yellow-400 rounded bg-white dark:bg-yellow-950 dark:text-yellow-100 focus:ring-2 focus:ring-yellow-400"
+                        className="w-20 px-2 py-1 border border-blue-200 dark:border-blue-700 rounded bg-gray-50 dark:bg-gray-800 dark:text-blue-100 focus:ring-2 focus:ring-blue-400"
                       />
                     </>
                   )}
                 </div>
-                <div className="ml-7 mt-1 text-xs text-yellow-700 dark:text-yellow-300 max-w-xl">
+                <div className="ml-7 mt-1 text-xs text-blue-700 dark:text-blue-300 max-w-xl">
                   <span>
                     <b>Tip:</b> Side bars are especially important for beams wider than 300 mm, for torsion, or where enhanced crack control is needed. If unchecked, all bars will be distributed as main bars only.
                   </span>
@@ -472,7 +625,7 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
               </div>
             </div>
           </form>
-          <button type="submit" onClick={handleSubmit} className="w-full py-2 px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 transition-colors font-semibold text-lg mb-4">Calculate</button>
+          <button type="submit" onClick={handleSubmit} className="w-full py-2 px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 transition-colors font-semibold text-lg mb-4" disabled={typeof input.stirrup_spacing === 'number' && (input.stirrup_spacing < 20 || input.stirrup_spacing > 600)}>Calculate</button>
           {error && <div className="text-red-500 mb-4">{error}</div>}
         </div>
         {/* Right Side: Results and Visualization */}
@@ -489,38 +642,19 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
                     bar_dia={results.bar_dia}
                     n_bars={results.n_bars}
                     stirrup_dia={stirrupDia}
-                    comp_bar_dia={results.is_doubly ? results.comp.bar_dia : undefined}
-                    n_comp_bars={results.is_doubly ? results.comp.n_bars : undefined}
+                    comp_bar_dia={results.comp && results.comp.bar_dia ? results.comp.bar_dia : undefined}
+                    n_comp_bars={results.comp && results.comp.n_bars ? results.comp.n_bars : undefined}
                     stirrup_positions={[600, 1400, 1800]}
                     n_layers={results.n_layers}
                     bars_per_layer={results.bars_per_layer}
-                    n_comp_layers={results.is_doubly ? results.comp.n_comp_layers : undefined}
-                    comp_bars_per_layer={results.is_doubly ? results.comp.comp_bars_per_layer : undefined}
+                    n_comp_layers={results.comp && results.comp.n_comp_layers ? results.comp.n_comp_layers : undefined}
+                    comp_bars_per_layer={results.comp && results.comp.comp_bars_per_layer ? results.comp.comp_bars_per_layer : undefined}
                     show_torsion_bars={!!torsionResult}
                     n_torsion_legs={torsionResult ? torsionResult.n_legs : 0}
                     torsion_bar_dia={16}
                     useSideBars={useSideBars}
                     sideBarDia={useSideBars ? sideBarDia : undefined}
                   />
-                </div>
-                {/* Enhanced Reinforcement Legend and Explanation */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem', marginTop: '1.5rem', marginBottom: '1.5rem', width: '100%' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 16, borderRadius: '50%', background: '#ef4444', border: '2px solid #991b1b', display: 'inline-block' }}></span> Tension bar (bottom)</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 16, borderRadius: '50%', background: '#2563eb', border: '2px solid #1e40af', display: 'inline-block' }}></span> Compression bar (top/side, only if doubly reinforced)</span>
-                    {useSideBars && <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 16, borderRadius: '50%', background: '#fb923c', border: '2px solid #b45309', display: 'inline-block' }}></span> Side bar (at beam sides, user-selected)</span>}
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 16, borderRadius: '50%', background: '#fbbf24', border: '2px solid #b45309', display: 'inline-block' }}></span> Torsion longitudinal bar (corners/sides, only if torsion applied)</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 16, height: 16, borderRadius: 4, background: '#fff', border: '2px solid #3b82f6', display: 'inline-block' }}></span> Closed stirrup (shear/torsion)</span>
-                  </div>
-                  <div style={{ marginTop: 16, fontSize: 15, color: '#444', maxWidth: 700 }}>
-                    <strong>Explanation:</strong><br/>
-                    <ul style={{ marginLeft: 20, marginTop: 4 }}>
-                      <li><b>Tension bars</b> (bottom) are always required to resist bending moment.</li>
-                      <li><b>Compression bars</b> (top/side) are only needed if the beam is doubly reinforced (when tension steel alone is insufficient for flexure).</li>
-                      <li><b>Torsion longitudinal bars</b> (corners/sides, shown in gold) are required whenever significant torsion is applied (T<sub>u</sub> &gt; 0), regardless of flexural reinforcement.</li>
-                      <li><b>Closed stirrups</b> (blue rectangles) are always required for shear, and must be provided as closed loops for torsion.</li>
-                    </ul>
-                  </div>
                 </div>
               </div>
               {/* Grouped Results Sections */}
@@ -555,7 +689,9 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
                   <h4 className="text-lg font-bold text-blue-700 dark:text-blue-300 mb-3">Shear Design</h4>
                   <ul className="text-sm text-gray-700 dark:text-gray-200 space-y-2">
                     <li><span className="font-semibold">Stirrup Size:</span> {stirrupDia} mm</li>
-                    <li><span className="font-semibold">Spacing:</span> {results.shear && results.shear.s ? results.shear.s.toFixed(1) : 'N/A'} mm</li>
+                    <li><span className="font-semibold">Spacing:</span> {results.stirrup_spacing ? results.stirrup_spacing.toFixed(1) : 'N/A'} mm
+                      {results.spacing_note && <span className="text-xs text-yellow-700 ml-2">({results.spacing_note})</span>}
+                    </li>
                     <li><span className="font-semibold">Shear Capacity:</span> {(results.V_n / 1e3).toFixed(2)} kN</li>
                     <li><span className="font-semibold">Required Shear:</span> {(input.V_u / 1e3).toFixed(2)} kN</li>
                   </ul>
@@ -578,14 +714,14 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
                   </div>
                 )}
                 {/* Hooks Design Details */}
-                <div className="bg-white border border-blue-400 rounded-xl p-4 shadow flex flex-col" style={{ marginBottom: 16 }}>
-                  <h4 className="text-lg font-bold text-blue-700 mb-3">Hooks Design</h4>
-                  <ul className="text-sm text-gray-700 space-y-2">
+                <div className="bg-white dark:bg-gray-900 border border-blue-400 dark:border-blue-700 rounded-xl p-4 shadow flex flex-col" style={{ marginBottom: 16 }}>
+                  <h4 className="text-lg font-bold text-blue-700 dark:text-blue-300 mb-3">Hooks Design</h4>
+                  <ul className="text-sm text-gray-700 dark:text-gray-200 space-y-2">
                     <li><span className="font-semibold">Hook Type:</span> 135° standard (beam stirrup)</li>
                     <li><span className="font-semibold">Minimum Bend Diameter:</span> {Math.max(8 * stirrupDia, 32)} mm</li>
                     <li><span className="font-semibold">Hook Extension (tail):</span> {Math.max(6 * stirrupDia, 60)} mm</li>
                   </ul>
-                  <div className="mt-2 text-blue-800 text-xs">Per ACI 318: 135° hooks, min bend 8d, min tail 6d or 60 mm</div>
+                  <div className="mt-2 text-blue-800 dark:text-blue-200 text-xs">Per ACI 318: 135° hooks, min bend 8d, min tail 6d or 60 mm</div>
                 </div>
               </div>
               {/* Calculation Steps Section */}
@@ -647,6 +783,16 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
                           <p className="font-mono text-sm mb-2"><strong>Required Steel Area (A<sub>s</sub>):</strong> {results.A_s_req.toFixed(2)} mm²</p>
                           <p className="font-mono text-sm mb-2">Bar Size: {results.bar_dia} mm, Number of Bars: {results.n_bars}</p>
                           <p className="font-mono text-sm mb-2">Layers: {results.n_layers}, Bars/Layer: {results.bars_per_layer}</p>
+                          {results.useSideBars && results.sideBarDia && (
+                            <p className="font-mono text-sm mb-2 text-green-700 dark:text-green-300">
+                              <strong>Provided Steel Area (A<sub>s,prov</sub>):</strong> {results.n_bars} × {results.bar_dia} mm + 2 × {results.sideBarDia} mm side bars = {(results.n_bars * (input.bar_areas[results.bar_dia] || 0) + 2 * (input.bar_areas[results.sideBarDia] || 0)).toFixed(2)} mm²
+                            </p>
+                          )}
+                          {!results.useSideBars && (
+                            <p className="font-mono text-sm mb-2">
+                              <strong>Provided Steel Area (A<sub>s,prov</sub>):</strong> {results.n_bars} × {results.bar_dia} mm = {(results.n_bars * (input.bar_areas[results.bar_dia] || 0)).toFixed(2)} mm²
+                            </p>
+                          )}
                         </div>
                         {results.is_doubly && results.comp && (
                           <div className="bg-white dark:bg-gray-800 p-3 rounded border">
@@ -655,8 +801,12 @@ const BeamReinforcementDesign: React.FC<BeamReinforcementDesignProps> = ({ width
                           </div>
                         )}
                         <div className="bg-white dark:bg-gray-800 p-3 rounded border">
-                          <p className="font-mono text-sm mb-2"><strong>Moment Capacity (φM<sub>n</sub>):</strong> {(results.phiM_n / 1e6).toFixed(2)} kN·m</p>
+                          <p className="font-mono text-sm mb-2"><strong>Input Values:</strong></p>
                           <p className="font-mono text-sm mb-2">Required Moment (M<sub>u</sub>): {(input.M_u / 1e6).toFixed(2)} kN·m</p>
+                          <p className="font-mono text-sm mb-2">Required Shear (V<sub>u</sub>): {(input.V_u / 1e3).toFixed(2)} kN</p>
+                          {input.T_u > 0 && <p className="font-mono text-sm mb-2">Required Torsion (T<sub>u</sub>): {(input.T_u / 1e6).toFixed(2)} kN·m</p>}
+                          <p className="font-mono text-sm mb-2"><strong>Results:</strong></p>
+                          <p className="font-mono text-sm mb-2">Moment Capacity (φM<sub>n</sub>): {(results.phiM_n / 1e6).toFixed(2)} kN·m</p>
                           <p className="font-mono text-sm mb-2">Capacity Ratio: {results.capacity_ratio.toFixed(4)}</p>
                         </div>
                       </div>

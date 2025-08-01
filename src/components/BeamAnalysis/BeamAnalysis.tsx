@@ -97,6 +97,16 @@ const BeamAnalysis: React.FC<BeamAnalysisProps> = ({ onBeamDataChange, ...rest }
 
   const [calculationError, setCalculationError] = useState<string | null>(null);
 
+  // Calculate maximum values consistently
+  const calculateMaxValues = useCallback(() => {
+    if (diagramData.length === 0) {
+      return { maxMoment: 0, maxShear: 0 };
+    }
+    const maxMoment = Math.max(...diagramData.map(d => Math.abs(d.moment)));
+    const maxShear = Math.max(...diagramData.map(d => Math.abs(d.shear)));
+    return { maxMoment, maxShear };
+  }, [diagramData]);
+
   // Save projects to local storage whenever they change
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -107,8 +117,7 @@ const BeamAnalysis: React.FC<BeamAnalysisProps> = ({ onBeamDataChange, ...rest }
   // Call onBeamDataChange when beam data changes
   useEffect(() => {
     if (onBeamDataChange) {
-      const maxShear = Math.max(...diagramData.map(d => Math.abs(d.shear)), 0);
-      const maxMoment = Math.max(...diagramData.map(d => Math.abs(d.moment)), 0);
+      const { maxShear, maxMoment } = calculateMaxValues();
       
       onBeamDataChange({
         width: beamWidth,
@@ -127,7 +136,7 @@ const BeamAnalysis: React.FC<BeamAnalysisProps> = ({ onBeamDataChange, ...rest }
         }
       });
     }
-  }, [beamWidth, beamHeight, materialProps, diagramData, onBeamDataChange]);
+  }, [beamWidth, beamHeight, materialProps, diagramData, onBeamDataChange, calculateMaxValues]);
 
   const handleSaveProject = useCallback(() => {
     if (!projectName.trim()) {
@@ -449,8 +458,7 @@ const BeamAnalysis: React.FC<BeamAnalysisProps> = ({ onBeamDataChange, ...rest }
     }
   };
 
-  const maxMoment = diagramData.length > 0 ? Math.max(...diagramData.map(d => Math.abs(d.moment))) : 0;
-  const maxShear = diagramData.length > 0 ? Math.max(...diagramData.map(d => Math.abs(d.shear))) : 0;
+  const { maxMoment, maxShear } = calculateMaxValues();
 
   return (
     <div className="flex flex-col h-full">
@@ -574,10 +582,10 @@ const BeamAnalysis: React.FC<BeamAnalysisProps> = ({ onBeamDataChange, ...rest }
           </section>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Column - Input Controls */}
+        <div className="flex h-[calc(100vh-120px)] w-full gap-6">
+          {/* Left Panel - Input Controls */}
           {activeTab === 'analysis' && (
-            <div className="lg:col-span-3 space-y-6">
+            <div className="w-full max-w-[400px] min-w-[320px] h-full overflow-y-auto space-y-6 pr-2">
               {/* Beam Properties Panel */}
               <section className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-6 transition-colors" aria-labelledby="beam-properties-header">
                 <h2 id="beam-properties-header" className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
@@ -775,8 +783,8 @@ const BeamAnalysis: React.FC<BeamAnalysisProps> = ({ onBeamDataChange, ...rest }
             </div>
           )}
 
-          {/* Right Column - Conditional Content */}
-          <div className="lg:col-span-9 space-y-6">
+          {/* Right Panel - Results/Output */}
+          <div className="flex-1 h-full overflow-y-auto space-y-6">
             {activeTab === 'analysis' ? (
               <>
                 {/* Loads Section */}

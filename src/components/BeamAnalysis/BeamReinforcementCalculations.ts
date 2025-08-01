@@ -28,6 +28,7 @@ export interface BeamReinforcementInput {
   phi_flexure: number; // Flexural strength reduction factor
   phi_shear: number; // Shear strength reduction factor
   phi_torsion: number; // Torsional strength reduction factor
+  stirrup_spacing?: number; // Optional: user input for stirrup spacing (mm)
 }
 
 export const E_s = 200000; // MPa - ACI 318-19 Section 20.2.2.1
